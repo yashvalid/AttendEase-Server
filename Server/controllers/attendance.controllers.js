@@ -35,7 +35,7 @@ exports.publish_attendance_event = async (req, res) => {
 
         res.status(201).json({ message: "attendance event created", insertId: result.insertId });
 
-        const [event] = await pool.execute(`SELECT u.user_id, u.name
+        const [event] = await pool.execute(`SELECT u.user_id, u.name, socket_id
             FROM class_student cs
             JOIN users u ON cs.student_id = u.user_id
             WHERE cs.class_id = ?`,
@@ -281,3 +281,4 @@ exports.get_rec_forStudent = async (req,res) => {
         return res.status(500).json({error : "Internal server error"});
     }
 }
+

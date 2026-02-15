@@ -1,6 +1,6 @@
 const dotenv = require("dotenv").config()
 const express = require("express");
-const {connectDB} = require("./DB/db");
+const { connectDB } = require("./DB/db");
 const http = require('http')
 const app = express();
 const userRouter = require('./routes/users.routes');
@@ -16,17 +16,18 @@ app.use(cors());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-app.get("/",(req,res) => {
+app.get("/", (req, res) => {
     res.send("hello from server")
 })
 
 app.use('/api/user', userRouter);
-app.use('/api/event',attendanceRouter);
+app.use('/api/event', attendanceRouter);
 
 const server = http.createServer(app);
 
 initSocket(server);
 
-server.listen(1000, () => {
-    console.log("server running on port 1000");
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`server running on port ${PORT}`);
 })
