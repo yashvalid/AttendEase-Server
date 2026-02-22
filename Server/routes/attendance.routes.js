@@ -26,6 +26,11 @@ router.post('/mark_attendance',
     attendanceController.mark_attendance
 )
 
+router.get('/get_unmarked_events',
+    authenticateToken,
+    attendanceController.get_unmarked_events
+)
+
 router.post('/mark_all',
     body('event_id').notEmpty(),
     authenticateToken,
@@ -40,6 +45,16 @@ router.get('/get_all_rec',
 router.get('/get_recs',
     authenticateToken,
     attendanceController.get_rec_forStudent
+)
+
+router.get('/get_teacher_report',
+    authenticateToken,
+    attendanceController.get_teacher_attendance_report
+)
+
+router.get('/get_student_report',
+    authenticateToken,
+    attendanceController.get_student_reports
 )
 
 module.exports = router;

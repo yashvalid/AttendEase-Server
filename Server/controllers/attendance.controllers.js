@@ -30,7 +30,7 @@ exports.publish_attendance_event = async (req, res) => {
             return res.status(422).json({ errors: errors.array() });
         const { class_id, event_name, latitude, longitude } = req.body;
         const [result] = await pool.execute(`insert into attendance_events(class_id, teacher_id, event_name, latitude, longitude, start_time, end_time, created_at) values(?,?,?,?,?,?,?,?)`,
-            [class_id, req.user.user_id, event_name, latitude, longitude, new Date(), new Date(Date.now() + 5 * 60 * 1000), new Date()]
+            [class_id, req.user.user_id, event_name, latitude, longitude, new Date(), new Date(Date.now() + 10 * 60 * 1000), new Date()]
         );
 
         res.status(201).json({ message: "attendance event created", insertId: result.insertId });
@@ -45,7 +45,6 @@ exports.publish_attendance_event = async (req, res) => {
         const [teacher] = await pool.execute(`select name from users where user_id = ?`, [req.user.user_id])
         event.map(i => sendEvent(i.socket_id, { className: className[0], teacher: teacher[0], event_name, event: 'attendance' }))
     } catch (err) {
-        console.log(err);
         return res.status(500).json({ error: 'event creation failed!' });
     }
 }
@@ -64,7 +63,7 @@ exports.get_attendance_event = async (req, res) => {
             const placeholders = classIds.map(() => '?').join(',');
             const now = new Date();
             const [rows] = await pool.execute(
-                `SELECT ae.*, c.class_name, u.name AS teacher_name
+                `SELECT ae.*, c.class_name, event_name, u.name AS teacher_name
              FROM attendance_events ae
              LEFT JOIN classes c ON ae.class_id = c.class_id
              LEFT JOIN users u ON ae.teacher_id = u.user_id
@@ -77,9 +76,8 @@ exports.get_attendance_event = async (req, res) => {
         }
         if (!attd_event || attd_event.length === 0)
             return res.status(200).json({ message: "No current attendance event" });
-        return res.status(200).json({ evnt: attd_event });
+        return res.status(200).json({ event: attd_event });
     } catch (err) {
-        console.log(err);
         return res.status(500).json({ error: 'Internal server error' });
     }
 }
@@ -216,6 +214,11 @@ exports.mark_all = async (req, res) => {
 
         const [insertResult] = await pool.execute(insertQuery, insertValues);
 
+        await pool.execute(
+            `UPDATE attendance_events SET marked = ? WHERE event_id = ?`,
+            [true, event_id]
+        );
+
         return res.status(201).json({
             message: 'Marked absent for missing students',
             markedCount: missingStudents.length,
@@ -227,14 +230,14 @@ exports.mark_all = async (req, res) => {
     }
 }
 
-exports.get_all_attendance = async (req,res) => {
-    try{
+exports.get_all_attendance = async (req, res) => {
+    try {
         const [all_event] = await pool.execute(`select event_id from attendance_events where teacher_id = ?`,
             [req.user.user_id]
         );
-        
-        if(all_event.length === 0)
-            return res.status(400).json({message : "No attendance events"});
+
+        if (all_event.length === 0)
+            return res.status(400).json({ message: "No attendance events" });
 
         const eventIds = all_event.map(e => e.event_id);
         const placeholders = eventIds.map(e => '?');
@@ -246,20 +249,20 @@ exports.get_all_attendance = async (req,res) => {
             where event_id in (${placeholders}) `,
             [...eventIds]
         );
-        console.log(all_attd);
-        if(all_event.length < 0)
-            return res.status(400).json({message : "No attendance records"});
 
-        return res.status(200).json({all_attd});
+        if (all_event.length < 0)
+            return res.status(400).json({ message: "No attendance records" });
 
-    }   catch(err){
-        console.log(err);
-        return res.status(500).json({error : "Internal server error"});
+        return res.status(200).json({ all_attd });
+
+    } catch (err) {
+
+        return res.status(500).json({ error: "Internal server error" });
     }
 }
 
-exports.get_rec_forStudent = async (req,res) => {
-    try{
+exports.get_rec_forStudent = async (req, res) => {
+    try {
         const [recs] = await pool.execute(`SELECT 
             ar.status,
             ar.marked_at,
@@ -273,12 +276,134 @@ exports.get_rec_forStudent = async (req,res) => {
             [req.user.user_id]
         );
 
-        if(recs.length === 0)
-            return res.status(422).json({message : "No attendance records"});
+        if (recs.length === 0)
+            return res.status(422).json({ message: "No attendance records" });
 
-        return res.status(200).json({recs});
-    } catch(err) {
-        return res.status(500).json({error : "Internal server error"});
+        return res.status(200).json({ recs });
+    } catch (err) {
+        return res.status(500).json({ error: "Internal server error" });
     }
 }
+
+exports.get_rec_forTeacher = async (req, res) => {
+    try {
+        const [recs] = await pool.execute(`SELECT 
+            ar.status,
+            ar.marked_at,
+            u.name AS student_name,
+            c.class_name
+            FROM attendance_records ar
+            JOIN users u ON ar.student_id = u.user_id AND u.role = 'student'
+            JOIN attendance_events ae ON ar.event_id = ae.event_id
+            JOIN classes c ON ae.class_id = c.class_id
+            WHERE ar.student_id = ?`,
+            [req.user.user_id]
+        );
+
+        if (recs.length === 0)
+            return res.status(422).json({ message: "No attendance records" });
+
+        return res.status(200).json({ recs });
+    } catch (err) {
+        return res.status(500).json({ error: "Internal server error" });
+    }
+}
+
+exports.get_unmarked_events = async (req, res) => {
+    try {
+        const [events] = await pool.execute(
+            `SELECT ae.*, c.class_name 
+             FROM attendance_events ae
+             JOIN classes c ON ae.class_id = c.class_id
+             WHERE ae.teacher_id = ? AND ae.marked = 0`,
+            [req.user.user_id]
+        );
+
+        if (events.length === 0)
+            return res.status(404).json({ message: "No unmarked attendance events found" });
+
+        const eventsWithStudents = await Promise.all(events.map(async (event) => {
+            const [students] = await pool.execute(
+                `SELECT u.user_id, u.name, 
+                 IF(ar.student_id IS NULL, 'absent', ar.status) as attendance_status,
+                 IF(ar.student_id IS NULL, 0, 1) as is_marked
+                 FROM users u
+                 JOIN class_student cs ON u.user_id = cs.student_id
+                 LEFT JOIN attendance_records ar ON u.user_id = ar.student_id AND ar.event_id = ?
+                 WHERE cs.class_id = ? AND u.role = 'student'`,
+                [event.event_id, event.class_id]
+            );
+            return { ...event, students };
+        }));
+
+        return res.status(200).json({ events: eventsWithStudents });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ error: "Internal server error" });
+    }
+}
+
+
+exports.get_teacher_attendance_report = async (req, res) => {
+    try {
+        const [events] = await pool.execute(
+            `SELECT ae.event_id, ae.class_id, ae.created_at, ae.marked, c.class_name 
+             FROM attendance_events ae
+             JOIN classes c ON ae.class_id = c.class_id
+             WHERE ae.teacher_id = ?
+             ORDER BY ae.created_at DESC`,
+            [req.user.user_id]
+        );
+
+        if (events.length === 0)
+            return res.status(404).json({ message: "No attendance events found" });
+
+        const report = await Promise.all(events.map(async (event) => {
+            const [students] = await pool.execute(
+                `SELECT u.user_id, u.name as student_name, 
+                 IF(ar.status IS NULL, 'absent', ar.status) as status, 
+                 ar.marked_at
+                 FROM users u
+                 JOIN class_student cs ON u.user_id = cs.student_id
+                 LEFT JOIN attendance_records ar ON u.user_id = ar.student_id AND ar.event_id = ?
+                 WHERE cs.class_id = ? AND u.role = 'student'`,
+                [event.event_id, event.class_id]
+            );
+            return { ...event, students };
+        }));
+
+        return res.status(200).json({ report });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ error: "Internal server error" });
+    }
+}
+
+exports.get_student_reports = async (req, res) => {
+    try {
+        const { user_id } = req.user;
+        const [rows] = await pool.query(
+            `SELECT ar.record_id, ar.event_id, ae.class_id, ae.teacher_id, ae.event_name,
+            ae.latitude AS event_latitude, ae.longitude AS event_longitude,
+            ae.start_time, ae.end_time, ar.status,
+            ar.latitude AS marked_latitude, ar.longitude AS marked_longitude,
+            ar.device_id, ar.marked_at, class_name
+            FROM attendance_records ar
+            JOIN attendance_events ae ON ar.event_id = ae.event_id
+            join classes c on ae.class_id = c.class_id
+            WHERE ar.student_id = ?
+            ORDER BY ae.start_time DESC`,
+            [user_id]
+        );
+
+        if (!rows || rows.length <= 0)
+            return res.status(404).json({ message: "No attendance records found" });
+
+        return res.status(200).json({ report: rows });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ error: "Internal server error" });
+    }
+}
+
 

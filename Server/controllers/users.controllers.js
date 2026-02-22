@@ -67,8 +67,7 @@ exports.login = async (req, res) => {
         );
 
         res.cookie("token", token);
-        res.cookie("token", token);
-        return res.status(200).json({ message: "Login successfull", token, user_id: user.user_id, role: user.role });
+        return res.status(200).json({ message: "Login successfull!", token, user: { user_id: user.user_id, name: user.name, email: user.email, role: user.role, dep: user.dep } });
     } catch (error) {
         console.log(error);
         return res.status(500).json({ error: 'Login failed' });
@@ -105,13 +104,18 @@ exports.create_class = async (req, res) => {
     }
 }
 
+
 exports.get_classes_by_teacher = async (req, res) => {
     try {
         if (req.user.role !== 'teacher') {
             return res.status(403).json({ error: "Unauthorized" });
         }
         const [classes] = await pool.execute(
-            `SELECT * FROM classes WHERE teacher_id = ?`,
+            `SELECT c.*, COUNT(cs.student_id) AS student_count 
+             FROM classes c 
+             LEFT JOIN class_student cs ON c.class_id = cs.class_id 
+             WHERE c.teacher_id = ? 
+             GROUP BY c.class_id`,
             [req.user.user_id]
         );
         return res.status(200).json({ classes });
@@ -120,6 +124,7 @@ exports.get_classes_by_teacher = async (req, res) => {
         return res.status(500).json({ error: "Internal server error" });
     }
 }
+
 
 exports.add_classes = async (req, res) => {
     try {
@@ -186,3 +191,16 @@ exports.get_enrolled_classes = async (req, res) => {
         return res.status(500).json({ error: "Internal server error" });
     }
 }
+
+exports.get_profile = async (req, res) => {
+    try {
+        const [user] = await pool.execute(`select * from users where user_id = ?`, [req.user.user_id]);
+        if (!user[0])
+            return res.status(404).json({ error: "User not found" });
+        return res.status(201).json({ user: user[0] });
+    } catch (err) {
+        console.log(err);
+        return res.status(500).json({ error: "Internal server error" });
+    }
+}
+

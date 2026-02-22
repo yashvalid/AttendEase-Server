@@ -22,13 +22,13 @@ router.post('/login',
 
 router.post('/add_class',
     body('class_id').notEmpty(),
-    body('year').notEmpty(),
     authenticateToken,
     userController.add_classes
 )
 
 router.post('/create_class',
     body('class_name').notEmpty(),
+    body('year').notEmpty(),
     authenticateToken,
     userController.create_class
 )
@@ -46,5 +46,10 @@ router.get('/student/classes',
 router.get('/enrolled-classes',
     authenticateToken,
     userController.get_enrolled_classes
+)
+
+router.get('/profile',
+    authenticateToken,
+    userController.get_profile
 )
 module.exports = router;

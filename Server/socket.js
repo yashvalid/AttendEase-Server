@@ -12,14 +12,14 @@ const initSocket = async (server) => {
     });
 
     io.on('connection', (socket) => {
+        console.log("socket connected", socket.id);
         socket.on("join", async (data) => {
-            
-            const user_id = String(data);
-            const [user] = await pool.execute(`update users set socket_id = ? where user_id = ?`,
-                [socket.id, data]
+            const userId = data.user_id || data;
+            await pool.execute(
+                'UPDATE users SET socket_id = ? WHERE user_id = ?',
+                [socket.id, userId]
             );
-            
-        })
+        });
     })
 }
 
