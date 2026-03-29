@@ -191,38 +191,31 @@ exports.mark_all = async (req, res) => {
 
         const presentIds = new Set(existing.map(r => r.student_id));
         const missingStudents = all_students.filter(s => !presentIds.has(s.user_id));
-
-        if (missingStudents.length === 0)
-            return res.status(200).json({ message: 'All students already marked present/absent' });
-
-        // bulk insert absent records for missing students
         const now = new Date();
         const insertValues = [];
         const valuePlaceholders = [];
-
-        for (const s of missingStudents) {
-            // (event_id, student_id, latitude, longitude, device_id, status, marked_at)
-            valuePlaceholders.push('(?,?,?,?,?,?,?)');
-            insertValues.push(event_id, s.user_id, null, null, 'system', 'absent', now);
-        }
-
-        const insertQuery = `
+        if (missingStudents.length !== 0) {
+            // return res.status(200).json({ message: 'All students already marked present/absent' });
+            for (const s of missingStudents) {
+                // (event_id, student_id, latitude, longitude, device_id, status, marked_at)
+                valuePlaceholders.push('(?,?,?,?,?,?,?)');
+                insertValues.push(event_id, s.user_id, null, null, 'system', 'absent', now);
+            }
+            const insertQuery = `
             INSERT INTO attendance_records
             (event_id, student_id, latitude, longitude, device_id, status, marked_at)
-            VALUES ${valuePlaceholders.join(',')}
-        `;
+            VALUES ${valuePlaceholders.join(',')}`;
 
-        const [insertResult] = await pool.execute(insertQuery, insertValues);
-
+             await pool.execute(insertQuery, insertValues);
+        }
         await pool.execute(
             `UPDATE attendance_events SET marked = ? WHERE event_id = ?`,
-            [true, event_id]
+            [1, event_id]
         );
 
         return res.status(201).json({
             message: 'Marked absent for missing students',
-            markedCount: missingStudents.length,
-            insertId: insertResult.insertId
+            markedCount: missingStudents.length
         });
     } catch (err) {
         console.error(err);
@@ -347,7 +340,7 @@ exports.get_unmarked_events = async (req, res) => {
 exports.get_teacher_attendance_report = async (req, res) => {
     try {
         const [events] = await pool.execute(
-            `SELECT ae.event_id, ae.class_id, ae.created_at, ae.marked, c.class_name 
+            `SELECT ae.event_id, ae.class_id, ae.created_at, ae.marked, ae.event_name, c.class_name 
              FROM attendance_events ae
              JOIN classes c ON ae.class_id = c.class_id
              WHERE ae.teacher_id = ?
@@ -360,7 +353,7 @@ exports.get_teacher_attendance_report = async (req, res) => {
 
         const report = await Promise.all(events.map(async (event) => {
             const [students] = await pool.execute(
-                `SELECT u.user_id, u.name as student_name, 
+                `SELECT u.user_id, u.name as student_name, u.email, 
                  IF(ar.status IS NULL, 'absent', ar.status) as status, 
                  ar.marked_at
                  FROM users u
@@ -371,7 +364,6 @@ exports.get_teacher_attendance_report = async (req, res) => {
             );
             return { ...event, students };
         }));
-
         return res.status(200).json({ report });
     } catch (err) {
         console.error(err);
