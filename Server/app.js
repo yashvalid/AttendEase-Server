@@ -5,6 +5,7 @@ const http = require('http')
 const app = express();
 const userRouter = require('./routes/users.routes');
 const attendanceRouter = require('./routes/attendance.routes')
+const adminRouter = require('./routes/admin.routes');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const { initSocket } = require("./socket");
@@ -22,6 +23,7 @@ app.get("/", (req, res) => {
 
 app.use('/api/user', userRouter);
 app.use('/api/event', attendanceRouter);
+app.use('/api/admin', adminRouter);
 
 const server = http.createServer(app);
 

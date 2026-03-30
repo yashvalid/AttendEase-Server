@@ -8,7 +8,7 @@ const setup = async () => {
 
         // 1. Add role to users table if not exists
         try {
-            await pool.execute(`ALTER TABLE users ADD COLUMN role ENUM('student', 'teacher') NOT NULL DEFAULT 'student' AFTER email`);
+            await pool.execute(`ALTER TABLE users ADD COLUMN role ENUM('student', 'teacher', 'admin') NOT NULL DEFAULT 'student' AFTER email`);
             console.log("Added 'role' column to users table.");
         } catch (err) {
             if (err.code === 'ER_DUP_FIELDNAME') {

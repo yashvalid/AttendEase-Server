@@ -9,7 +9,6 @@ const authenticateToken = async (req, res, next) => {
 
     try {
         const decodeToken = jwt.verify(token, process.env.JWT_SECRET);
-
         const [user] = await pool.execute(
             `SELECT u.*, uy.year 
              FROM users u 

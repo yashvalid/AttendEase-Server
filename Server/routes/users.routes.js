@@ -10,7 +10,7 @@ router.post('/register',
     body('password').isLength({ min: 7 }).notEmpty(),
     body('year').isArray().notEmpty(),
     body('dep').notEmpty(),
-    body('role').isIn(['teacher', 'student']).notEmpty(),
+    body('role').isIn(['teacher', 'student', 'admin']).notEmpty(),
     userController.register
 )
 
