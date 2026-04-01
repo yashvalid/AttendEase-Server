@@ -57,4 +57,9 @@ router.get('/get_student_report',
     attendanceController.get_student_reports
 )
 
+router.put('/mark-absent',
+    authenticateToken,
+    attendanceController.update_student_record
+)
+
 module.exports = router;

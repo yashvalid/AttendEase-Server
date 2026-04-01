@@ -4,45 +4,54 @@ const bcrypt = require('bcrypt');
 // ============= USER MANAGEMENT =============
 
 // Get all users with pagination
-exports.getAllUsers = async (req, res) => {
-    try {
-        const page = Math.max(1, parseInt(req.query.page) || 1);
-        const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 10));
-        const role = req.query.role; // filter by role (student/teacher)
-        const offset = Math.max(0, (page - 1) * limit);
+// exports.getAllUsers = async (req, res) => {
+//     try {
+//         const page = Math.max(1, parseInt(req.query.page) || 1);
+//         const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 10));
+//         const role = req.query.role; // filter by role (student/teacher)
+//         const offset = Math.max(0, (page - 1) * limit);
 
-        let query = `SELECT user_id, name, email, role, dep, created_at FROM users`;
-        let countQuery = `SELECT COUNT(*) as total FROM users`;
-        const params = [];
+//         let query = `SELECT user_id, name, email, role, dep, created_at FROM users`;
+//         let countQuery = `SELECT COUNT(*) as total FROM users`;
+//         const params = [];
 
-        if (role) {
-            query += ` WHERE role = ?`;
-            countQuery += ` WHERE role = ?`;
-            params.push(role);
-        }
+//         if (role) {
+//             query += ` WHERE role = ?`;
+//             countQuery += ` WHERE role = ?`;
+//             params.push(role);
+//         }
 
-        query += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
-        const queryParams = [...params, parseInt(limit), parseInt(offset)];
+//         query += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+//         const queryParams = [...params, parseInt(limit), parseInt(offset)];
 
-        const [users] = await pool.execute(query, queryParams);
+//         const [users] = await pool.execute(query, queryParams);
         
-        const countParams = role ? [role] : [];
-        const [countResult] = await pool.execute(countQuery, countParams);
-        const total = countResult[0].total;
+//         const countParams = role ? [role] : [];
+//         const [countResult] = await pool.execute(countQuery, countParams);
+//         const total = countResult[0].total;
 
-        return res.status(200).json({
-            message: "Users retrieved successfully",
-            data: users,
-            pagination: {
-                total,
-                page,
-                limit,
-                pages: Math.ceil(total / limit)
-            }
-        });
-    } catch (error) {
-        console.log(error);
-        return res.status(500).json({ error: 'Failed to retrieve users' });
+//         return res.status(200).json({
+//             message: "Users retrieved successfully",
+//             data: users,
+//             pagination: {
+//                 total,
+//                 page,
+//                 limit,
+//                 pages: Math.ceil(total / limit)
+//             }
+//         });
+//     } catch (error) {
+//         console.log(error);
+//         return res.status(500).json({ error: 'Failed to retrieve users' });
+//     }
+// }
+
+exports.getAllUsers = async (req, res) =>{
+    try{
+        const [rows] = await pool.execute('select * from users')
+        return res.status(200).json({rows})
+    } catch(err){
+        return res.status(500).json({error : err})
     }
 }
 

@@ -1,10 +1,30 @@
 const { validationResult } = require('express-validator');
 const { pool } = require('../DB/db');
-const attendence = require('../models/attendence.model');
 const { sendEvent } = require('../socket');
 
-const isWithinRadius = (lat1, lon1, lat2, lon2, radiusMeters) => {
-    const R = 6371000; // Earth radius in meters
+/**
+ * Checks if two points are within a given radius, optionally considering altitude.
+ * @param {number} lat1 Latitude of point 1
+ * @param {number} lon1 Longitude of point 1
+ * @param {number} lat2 Latitude of point 2
+ * @param {number} lon2 Longitude of point 2
+ * @param {number} radiusMeters Allowed radius in meters
+ * @param {number} [alt1] Optional altitude of point 1 in meters
+ * @param {number} [alt2] Optional altitude of point 2 in meters
+ * @returns {boolean}
+ */
+const isWithinRadius = (lat1, lon1, lat2, lon2, radiusMeters, alt1 = 0, alt2 = 0) => {
+    // Input validation
+    if ([lat1, lon1, lat2, lon2, radiusMeters].some(v => typeof v !== 'number' || isNaN(v))) {
+        throw new Error('Invalid input: coordinates and radius must be numbers');
+    }
+    if (lat1 < -90 || lat1 > 90 || lat2 < -90 || lat2 > 90) {
+        throw new Error('Latitude must be between -90 and 90');
+    }
+    if (lon1 < -180 || lon1 > 180 || lon2 < -180 || lon2 > 180) {
+        throw new Error('Longitude must be between -180 and 180');
+    }
+    const R = 6371008.8; // Mean Earth radius in meters (WGS-84)
     const toRad = deg => deg * Math.PI / 180;
 
     const dLat = toRad(lat2 - lat1);
@@ -15,7 +35,13 @@ const isWithinRadius = (lat1, lon1, lat2, lon2, radiusMeters) => {
         Math.sin(dLon / 2) ** 2;
 
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    const distance = R * c;
+    const distance2D = R * c;
+
+    // 3D distance if altitude is provided
+    let distance = distance2D;
+    if (typeof alt1 === 'number' && typeof alt2 === 'number' && (alt1 !== 0 || alt2 !== 0)) {
+        distance = Math.sqrt(distance2D ** 2 + (alt2 - alt1) ** 2);
+    }
 
     return distance <= radiusMeters;
 };
@@ -112,7 +138,7 @@ exports.mark_attendance = async (req, res) => {
             return res.status(410).json({ message: 'Too late' });
 
         // optional: radius check (adjust RADIUS_METERS as needed)
-        const RADIUS_METERS = 15;
+        const RADIUS_METERS = 20;
         if (
             typeof event.latitude !== 'undefined' &&
             typeof event.longitude !== 'undefined' &&
@@ -207,7 +233,7 @@ exports.mark_all = async (req, res) => {
             (event_id, student_id, latitude, longitude, fingerprint, status, marked_at)
             VALUES ${valuePlaceholders.join(',')}`;
 
-             await pool.execute(insertQuery, insertValues);
+            await pool.execute(insertQuery, insertValues);
         }
         await pool.execute(
             `UPDATE attendance_events SET marked = ? WHERE event_id = ?`,
@@ -401,4 +427,17 @@ exports.get_student_reports = async (req, res) => {
     }
 }
 
+exports.update_student_record = async (req, res) => {
+    try {
+        const { event_id, student_id } = req.body;
+        
+        const [rows] = await pool.execute(`update attendance_records set status = 'absent', fingerprint = null where event_id = ? and student_id = ?`, [event_id, student_id]);
+
+        if (rows.length <= 0 || !rows)
+            return res.status(404).json({message : "Not found"});
+        return res.status(200).json({message : "Successful"})
+    } catch(err){
+        return res.status(500).json({error : err})
+    }
+}
 
