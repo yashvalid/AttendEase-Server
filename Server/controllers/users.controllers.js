@@ -34,7 +34,6 @@ exports.register = async (req, res) => {
         return res.status(201).json({ message: "Registration successfull" });
 
     } catch (err) {
-        console.log(err);
         return res.status(500).json({ error: 'Registration failed!' });
     }
 }
@@ -69,7 +68,6 @@ exports.login = async (req, res) => {
         res.cookie("token", token);
         return res.status(200).json({ message: "Login successfull!", token, user: { user_id: user.user_id, name: user.name, email: user.email, role: user.role, dep: user.dep } });
     } catch (error) {
-        console.log(error);
         return res.status(500).json({ error: 'Login failed' });
     }
 }
@@ -87,12 +85,11 @@ exports.create_class = async (req, res) => {
         const class_id = uuidv4().split('-')[0];
 
         const [dep] = await pool.execute(`select dep from users where user_id = ?`, [req.user.user_id]);
-        console.log(dep)
         const [create] = await pool.execute(
             `INSERT INTO classes (class_id, class_name, teacher_id, year, dep) VALUES (?, ?, ?, ?, ?)`,
             [class_id, class_name, req.user.user_id, year, dep[0].dep]
         );
-        console.log(create)
+   
         if (!create || create.affectedRows !== 1)
             return res.status(500).json({ message: "Error creating class" });
 
@@ -154,7 +151,6 @@ exports.add_classes = async (req, res) => {
 
         return res.status(201).json({ message: "Class added" });
     } catch (err) {
-        console.log(err)
         return res.status(500).json({ error: "Internal server error" });
     }
 }
@@ -199,7 +195,6 @@ exports.get_profile = async (req, res) => {
             return res.status(404).json({ error: "User not found" });
         return res.status(201).json({ user: user[0] });
     } catch (err) {
-        console.log(err);
         return res.status(500).json({ error: "Internal server error" });
     }
 }

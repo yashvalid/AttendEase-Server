@@ -88,7 +88,8 @@ exports.mark_attendance = async (req, res) => {
         if (!errors.isEmpty())
             return res.status(422).json({ errors: errors.array() });
 
-        const { event_id, latitude, longitude } = req.body;
+        const { event_id, latitude, longitude, fingerprint } = req.body;
+        console.log(fingerprint)
         const student_id = req.user.user_id;
         const now = new Date();
 
@@ -111,7 +112,7 @@ exports.mark_attendance = async (req, res) => {
             return res.status(410).json({ message: 'Too late' });
 
         // optional: radius check (adjust RADIUS_METERS as needed)
-        const RADIUS_METERS = 10;
+        const RADIUS_METERS = 15;
         if (
             typeof event.latitude !== 'undefined' &&
             typeof event.longitude !== 'undefined' &&
@@ -138,9 +139,9 @@ exports.mark_attendance = async (req, res) => {
 
         const [result] = await pool.execute(
             `INSERT INTO attendance_records
-             (event_id, student_id, latitude, longitude, device_id, status, marked_at)
+             (event_id, student_id, latitude, longitude, fingerprint, status, marked_at)
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [event_id, student_id, latitude, longitude, "device_id" || 'unknown', 'present', now]
+            [event_id, student_id, latitude, longitude, fingerprint, 'present', now]
         );
 
         return res.status(201).json({ message: 'Attendance marked', insertId: result.insertId });
@@ -197,13 +198,13 @@ exports.mark_all = async (req, res) => {
         if (missingStudents.length !== 0) {
             // return res.status(200).json({ message: 'All students already marked present/absent' });
             for (const s of missingStudents) {
-                // (event_id, student_id, latitude, longitude, device_id, status, marked_at)
+                // (event_id, student_id, latitude, longitude, fingerprint, status, marked_at)
                 valuePlaceholders.push('(?,?,?,?,?,?,?)');
                 insertValues.push(event_id, s.user_id, null, null, 'system', 'absent', now);
             }
             const insertQuery = `
             INSERT INTO attendance_records
-            (event_id, student_id, latitude, longitude, device_id, status, marked_at)
+            (event_id, student_id, latitude, longitude, fingerprint, status, marked_at)
             VALUES ${valuePlaceholders.join(',')}`;
 
              await pool.execute(insertQuery, insertValues);
@@ -355,15 +356,17 @@ exports.get_teacher_attendance_report = async (req, res) => {
             const [students] = await pool.execute(
                 `SELECT u.user_id, u.name as student_name, u.email, 
                  IF(ar.status IS NULL, 'absent', ar.status) as status, 
-                 ar.marked_at
+                 ar.marked_at, ar.fingerprint
                  FROM users u
                  JOIN class_student cs ON u.user_id = cs.student_id
                  LEFT JOIN attendance_records ar ON u.user_id = ar.student_id AND ar.event_id = ?
                  WHERE cs.class_id = ? AND u.role = 'student'`,
                 [event.event_id, event.class_id]
             );
+            console.log(students)
             return { ...event, students };
         }));
+        console.log(report.students, report.event_id)
         return res.status(200).json({ report });
     } catch (err) {
         console.error(err);
@@ -379,7 +382,7 @@ exports.get_student_reports = async (req, res) => {
             ae.latitude AS event_latitude, ae.longitude AS event_longitude,
             ae.start_time, ae.end_time, ar.status,
             ar.latitude AS marked_latitude, ar.longitude AS marked_longitude,
-            ar.device_id, ar.marked_at, class_name
+            ar.fingerprint, ar.marked_at, class_name
             FROM attendance_records ar
             JOIN attendance_events ae ON ar.event_id = ae.event_id
             join classes c on ae.class_id = c.class_id
