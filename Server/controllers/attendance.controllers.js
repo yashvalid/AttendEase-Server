@@ -115,7 +115,6 @@ exports.mark_attendance = async (req, res) => {
             return res.status(422).json({ errors: errors.array() });
 
         const { event_id, latitude, longitude, fingerprint } = req.body;
-        console.log(fingerprint)
         const student_id = req.user.user_id;
         const now = new Date();
 
@@ -389,10 +388,8 @@ exports.get_teacher_attendance_report = async (req, res) => {
                  WHERE cs.class_id = ? AND u.role = 'student'`,
                 [event.event_id, event.class_id]
             );
-            console.log(students)
             return { ...event, students };
         }));
-        console.log(report.students, report.event_id)
         return res.status(200).json({ report });
     } catch (err) {
         console.error(err);
