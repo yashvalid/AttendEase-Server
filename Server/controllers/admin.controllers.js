@@ -202,7 +202,7 @@ exports.getAllClasses = async (req, res) => {
                 c.teacher_id, 
                 u.name as teacher_name,
                 u.email as teacher_email,
-                c.created_at,
+              
                 COUNT(DISTINCT cs.student_id) as enrolled_students
             FROM classes c
             LEFT JOIN users u ON c.teacher_id = u.user_id
@@ -236,7 +236,7 @@ exports.getAllClasses = async (req, res) => {
             params.push(dep);
         }
 
-        query += ` GROUP BY c.class_id ORDER BY c.created_at DESC LIMIT ? OFFSET ?`;
+            query += ` GROUP BY c.class_id LIMIT ${Number(limit)} OFFSET ${Number(offset)}`;
         const limitParams = [...params, parseInt(limit), parseInt(offset)];
 
         const [classes] = await pool.execute(query, limitParams);
@@ -508,10 +508,8 @@ exports.getAllAttendanceRecords = async (req, res) => {
             params.push(student_id);
         }
 
-        query += ` ORDER BY ar.marked_at DESC LIMIT ? OFFSET ?`;
-        const limitParams = [...params, parseInt(limit), parseInt(offset)];
-
-        const [records] = await pool.execute(query, limitParams);
+        query += ` ORDER BY ar.marked_at DESC LIMIT ${Number(limit)} OFFSET ${Number(offset)}`;
+        const [records] = await pool.execute(query, params);
         
         const countParams = params;
         const [countResult] = await pool.execute(countQuery, countParams);
@@ -706,8 +704,8 @@ exports.getAllAttendanceEvents = async (req, res) => {
             whereAdded = true;
         }
 
-        query += ` GROUP BY ae.event_id ORDER BY ae.created_at DESC LIMIT ? OFFSET ?`;
-        const eventParams = [...params, parseInt(limit), parseInt(offset)];
+            query += ` GROUP BY ae.event_id ORDER BY ae.created_at DESC LIMIT ${Number(limit)} OFFSET ${Number(offset)}`;
+            const eventParams = params;
 
         const [events] = await pool.execute(query, eventParams);
 

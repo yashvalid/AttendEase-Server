@@ -6,7 +6,6 @@ const authenticateToken = require('../middleware/authentication');
 
 // Middleware to check if user is admin (you may need to add 'admin' role to users)
 const isAdmin = (req, res, next) => {
-    console.log(req.user)
     if (req.user.role !== 'admin') {
         return res.status(403).json({ error: 'Access denied. Admin privileges required.' });
     }
