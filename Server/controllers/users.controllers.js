@@ -3,6 +3,7 @@ const { v4: uuidv4, v4 } = require('uuid');
 const { validationResult } = require('express-validator');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const { invalidateCache } = require('../middleware/cache');
 
 exports.register = async (req, res) => {
     try {
@@ -30,6 +31,9 @@ exports.register = async (req, res) => {
             await pool.execute(`insert into user_years (user_id, year) values(?,?)`,
                 [user_id, year[i]]
             );
+
+        // Invalidate admin users cache after registering new user
+        await invalidateCache(['cache:admin:users:*', 'cache:admin:dept:*', 'cache:admin:statistics*']);
 
         return res.status(201).json({ message: "Registration successfull" });
 
@@ -93,6 +97,14 @@ exports.create_class = async (req, res) => {
         if (!create || create.affectedRows !== 1)
             return res.status(500).json({ message: "Error creating class" });
 
+        // Invalidate cache for teacher's classes
+        await invalidateCache([
+            `cache:user:classes:${req.user.user_id}`,
+            'cache:admin:classes:*',
+            'cache:admin:statistics*',
+            'cache:student:classes:*'
+        ]);
+
         return res.status(201).json({ message: "Class created successfully", class_id });
 
     } catch (err) {
@@ -141,6 +153,14 @@ exports.add_classes = async (req, res) => {
             [class_id, req.user.user_id]
         )
         if (exists.length > 0)
+        // Invalidate cache when student enrolls in a class
+        await invalidateCache([
+            `cache:student:classes:${req.user.user_id}`,
+            `cache:enrolled:classes:${req.user.user_id}`,
+            `cache:admin:class:${class_id}`,
+            'cache:admin:statistics*'
+        ]);
+
             return res.status(409).json({ error: "Class already added" }); // 409 Conflict
         const [add_cs] = await pool.execute(`insert into class_student(class_id, student_id) values(?,?)`,
             [class_id, req.user.user_id]

@@ -1,5 +1,6 @@
 const { pool } = require('../DB/db');
 const bcrypt = require('bcrypt');
+const { invalidateCache } = require('../middleware/cache');
 
 
 exports.getAllUsers = async (req, res) => {
@@ -68,31 +69,98 @@ exports.getUserById = async (req, res) => {
 
 // Delete user
 exports.deleteUser = async (req, res) => {
+    const connection = await pool.getConnection();
+
     try {
         const { user_id } = req.params;
 
-        const [checkUser] = await pool.execute(
-            `SELECT user_id FROM users WHERE user_id = ?`,
+        await connection.beginTransaction();
+
+        // Check user
+        const [user] = await connection.execute(
+            `SELECT role FROM users WHERE user_id = ?`,
             [user_id]
         );
 
-        if (!checkUser || checkUser.length === 0)
+        if (!user.length) {
+            await connection.rollback();
             return res.status(404).json({ error: 'User not found' });
+        }
 
-        const [deleteResult] = await pool.execute(
+        const role = user[0].role;
+
+        // ================= CLEANUP =================
+
+        // 1. Remove from class_student
+        await connection.execute(
+            `DELETE FROM class_student WHERE student_id = ?`,
+            [user_id]
+        );
+
+        // 2. Delete attendance records of student
+        await connection.execute(
+            `DELETE FROM attendance_records WHERE student_id = ?`,
+            [user_id]
+        );
+
+        // 3. If teacher → delete their events + related records
+        if (role === 'teacher') {
+
+            // delete records of their events
+            await connection.execute(`
+                DELETE FROM attendance_records 
+                WHERE event_id IN (
+                    SELECT event_id FROM attendance_events WHERE teacher_id = ?
+                )
+            `, [user_id]);
+
+            // delete events
+            await connection.execute(
+                `DELETE FROM attendance_events WHERE teacher_id = ?`,
+                [user_id]
+            );
+
+            // remove teacher from classes (optional: set NULL instead)
+            await connection.execute(
+                `UPDATE classes SET teacher_id = NULL WHERE teacher_id = ?`,
+                [user_id]
+            );
+        }
+
+        // 4. Finally delete user
+        const [result] = await connection.execute(
             `DELETE FROM users WHERE user_id = ?`,
             [user_id]
         );
 
-        if (deleteResult.affectedRows !== 1)
-            return res.status(500).json({ error: 'Failed to delete user' });
+        if (result.affectedRows !== 1) {
+            await connection.rollback();
+            return res.status(500).json({ error: 'Delete failed' });
+        }
 
-        return res.status(200).json({ message: 'User deleted successfully' });
-    } catch (error) {
-        console.log(error);
-        return res.status(500).json({ error: 'Failed to delete user' });
+        await connection.commit();
+
+        // ✅ Invalidate cache AFTER success
+        await invalidateCache([
+            'cache:admin:users:*',
+            'cache:admin:dept:*',
+            'cache:admin:attendance:*',
+            'cache:attendance:*',
+            'cache:admin:statistics*'
+        ]);
+
+        return res.status(200).json({
+            message: 'User deleted successfully (clean delete)'
+        });
+
+    } catch (err) {
+        await connection.rollback();
+        console.error(err);
+        return res.status(500).json({ error: 'Delete failed' });
+    } finally {
+        connection.release();
     }
-}
+};
 
 // Update user role
 exports.updateUserRole = async (req, res) => {
@@ -118,6 +186,9 @@ exports.updateUserRole = async (req, res) => {
 
         if (updateResult.affectedRows !== 1)
             return res.status(500).json({ error: 'Failed to update user role' });
+
+        // Invalidate user and class caches
+        await invalidateCache(['cache:admin:users:*', 'cache:admin:dept:*', 'cache:admin:classes:*', 'cache:admin:statistics*']);
 
         return res.status(200).json({ message: 'User role updated successfully' });
     } catch (error) {
@@ -312,28 +383,46 @@ exports.deleteClass = async (req, res) => {
     try {
         const { class_id } = req.params;
 
-        const [checkClass] = await pool.execute(
+        const [check] = await pool.execute(
             `SELECT class_id FROM classes WHERE class_id = ?`,
             [class_id]
         );
 
-        if (!checkClass || checkClass.length === 0)
+        if (!check.length)
             return res.status(404).json({ error: 'Class not found' });
 
-        const [deleteResult] = await pool.execute(
+        // delete dependencies first
+        await pool.execute(`DELETE FROM class_student WHERE class_id = ?`, [class_id]);
+
+        await pool.execute(`
+            DELETE FROM attendance_records 
+            WHERE event_id IN (
+                SELECT event_id FROM attendance_events WHERE class_id = ?
+            )
+        `, [class_id]);
+
+        await pool.execute(`DELETE FROM attendance_events WHERE class_id = ?`, [class_id]);
+
+        const [result] = await pool.execute(
             `DELETE FROM classes WHERE class_id = ?`,
             [class_id]
         );
 
-        if (deleteResult.affectedRows !== 1)
-            return res.status(500).json({ error: 'Failed to delete class' });
+        if (result.affectedRows !== 1)
+            return res.status(500).json({ error: 'Delete failed' });
 
-        return res.status(200).json({ message: 'Class deleted successfully' });
-    } catch (error) {
-        console.log(error);
-        return res.status(500).json({ error: 'Failed to delete class' });
+        await invalidateCache([
+            'cache:admin:classes:*',
+            'cache:admin:class:*',
+            'cache:attendance:*'
+        ]);
+
+        return res.status(200).json({ message: 'Class deleted' });
+
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
     }
-}
+};
 
 // Update class
 exports.updateClass = async (req, res) => {
@@ -370,6 +459,9 @@ exports.updateClass = async (req, res) => {
         params.push(class_id);
 
         const [updateResult] = await pool.execute(query, params);
+
+        // Invalidate class caches
+        await invalidateCache(['cache:user:classes:*', 'cache:student:classes:*', 'cache:admin:classes:*', 'cache:admin:class:*', 'cache:admin:statistics*']);
 
         if (updateResult.affectedRows !== 1)
             return res.status(500).json({ error: 'Failed to update class' });
@@ -422,9 +514,12 @@ exports.removeStudentFromClass = async (req, res) => {
             return res.status(404).json({ error: 'Student not enrolled in this class' });
 
         const [deleteResult] = await pool.execute(
-            `DELETE FROM class_student WHERE class_id = ? AND student_id = ?`,
-            [class_id, student_id]
+            `DELETE FROM class_student WHERE class_id = ? AND student_id = ?`, [class_id, student_id]
         );
+        // Invalidate class and student caches
+        await invalidateCache(['cache:student:classes:*', 'cache:enrolled:classes:*', 'cache:admin:class:*', 'cache:admin:statistics*']);
+
+           
 
         if (deleteResult.affectedRows !== 1)
             return res.status(500).json({ error: 'Failed to remove student' });
@@ -621,9 +716,11 @@ exports.deleteAttendanceRecord = async (req, res) => {
             return res.status(404).json({ error: 'Attendance record not found' });
 
         const [deleteResult] = await pool.execute(
-            `DELETE FROM attendance_records WHERE record_id = ?`,
-            [record_id]
+            `DELETE FROM attendance_records WHERE record_id = ?`,  [record_id]
         );
+
+        // Invalidate attendance caches
+        await invalidateCache(['cache:attendance:*', 'cache:admin:attendance:*', 'cache:admin:statistics*']);
 
         if (deleteResult.affectedRows !== 1)
             return res.status(500).json({ error: 'Failed to delete record' });
@@ -641,32 +738,33 @@ exports.updateAttendanceStatus = async (req, res) => {
         const { record_id } = req.params;
         const { status } = req.body;
 
-        if (!['present', 'absent'].includes(status))
-            return res.status(422).json({ error: 'Invalid status. Must be present or absent' });
-
-        const [checkRecord] = await pool.execute(
+        const [check] = await pool.execute(
             `SELECT record_id FROM attendance_records WHERE record_id = ?`,
             [record_id]
         );
 
-        if (!checkRecord || checkRecord.length === 0)
-            return res.status(404).json({ error: 'Attendance record not found' });
+        if (!check.length)
+            return res.status(404).json({ error: 'Not found' });
 
-        const [updateResult] = await pool.execute(
+        const [result] = await pool.execute(
             `UPDATE attendance_records SET status = ? WHERE record_id = ?`,
             [status, record_id]
         );
 
-        if (updateResult.affectedRows !== 1)
-            return res.status(500).json({ error: 'Failed to update attendance' });
+        if (result.affectedRows !== 1)
+            return res.status(500).json({ error: 'Update failed' });
 
-        return res.status(200).json({ message: 'Attendance status updated successfully' });
-    } catch (error) {
-        console.log(error);
-        return res.status(500).json({ error: 'Failed to update attendance' });
+        await invalidateCache([
+            'cache:attendance:*',
+            'cache:admin:attendance:*'
+        ]);
+
+        return res.status(200).json({ message: 'Updated' });
+
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
     }
-}
-
+};
 
 // ============= ATTENDANCE EVENTS MANAGEMENT =============
 
@@ -785,7 +883,10 @@ exports.deleteAttendanceEvent = async (req, res) => {
 
         if (!checkEvent || checkEvent.length === 0)
             return res.status(404).json({ error: 'Event not found' });
+// Invalidate attendance event caches
+        await invalidateCache(['cache:attendance:*', 'cache:admin:events:*', 'cache:admin:attendance:*', 'cache:admin:statistics*']);
 
+        
         const [deleteResult] = await pool.execute(
             `DELETE FROM attendance_events WHERE event_id = ?`,
             [event_id]

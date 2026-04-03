@@ -1,6 +1,7 @@
 const { validationResult } = require('express-validator');
 const { pool } = require('../DB/db');
 const { sendEvent } = require('../socket');
+const { invalidateCache } = require('../middleware/cache');
 
 /**
  * Checks if two points are within a given radius, optionally considering altitude.
@@ -58,6 +59,18 @@ exports.publish_attendance_event = async (req, res) => {
         const [result] = await pool.execute(`insert into attendance_events(class_id, teacher_id, event_name, latitude, longitude, start_time, end_time, created_at) values(?,?,?,?,?,?,?,?)`,
             [class_id, req.user.user_id, event_name, latitude, longitude, new Date(), new Date(Date.now() + 10 * 60 * 1000), new Date()]
         );
+
+        // Invalidate attendance-related caches
+        await invalidateCache([
+            `cache:attendance:events:*`,
+            `cache:attendance:unmarked:*`,
+            `cache:attendance:all:*`,
+            `cache:attendance:student:*`,
+            `cache:attendance:teacher_report:*`,
+            `cache:admin:attendance:*`,
+            `cache:admin:events:*`,
+            'cache:admin:statistics*'
+        ]);
 
         res.status(201).json({ message: "attendance event created", insertId: result.insertId });
 
@@ -156,8 +169,7 @@ exports.mark_attendance = async (req, res) => {
 
         // prevent duplicate marking
         const [existing] = await pool.execute(
-            'SELECT 1 FROM attendance_records WHERE event_id = ? AND student_id = ? LIMIT 1',
-            [event_id, student_id]
+            'SELECT 1 FROM attendance_records WHERE event_id = ? AND student_id = ? LIMIT 1', [event_id, student_id]
         );
         if (existing && existing.length > 0)
             return res.status(409).json({ message: 'Attendance already marked' });
@@ -168,7 +180,14 @@ exports.mark_attendance = async (req, res) => {
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
             [event_id, student_id, latitude, longitude, fingerprint, 'present', now]
         );
-
+        await invalidateCache([
+            `cache:attendance:events:${student_id}`,
+            `cache:attendance:unmarked:*`,
+            `cache:attendance:student:${student_id}`,
+            `cache:attendance:teacher_report:*`,
+            `cache:admin:attendance:*`,
+            'cache:admin:statistics*'
+        ]);
         return res.status(201).json({ message: 'Attendance marked', insertId: result.insertId });
     } catch (err) {
         console.error(err);
@@ -234,6 +253,11 @@ exports.mark_all = async (req, res) => {
 
             await pool.execute(insertQuery, insertValues);
         }
+        await invalidateCache([
+            `cache:attendance:*`,
+            `cache:admin:attendance:*`,
+            'cache:admin:statistics*'
+        ]);
         await pool.execute(
             `UPDATE attendance_events SET marked = ? WHERE event_id = ?`,
             [1, event_id]
@@ -315,7 +339,7 @@ exports.get_rec_forTeacher = async (req, res) => {
             JOIN users u ON ar.student_id = u.user_id AND u.role = 'student'
             JOIN attendance_events ae ON ar.event_id = ae.event_id
             JOIN classes c ON ae.class_id = c.class_id
-            WHERE ar.student_id = ?`,
+            WHERE ar.teacher_id = ?`,
             [req.user.user_id]
         );
 
@@ -415,6 +439,14 @@ exports.get_student_reports = async (req, res) => {
         );
 
         if (!rows || rows.length <= 0)
+
+            // Invalidate caches when attendance is updated
+            // await invalidateCache([
+            //     `cache:attendance:*`,
+            //     `cache:admin:attendance:*`,
+            //     'cache:admin:statistics*'
+            // ]);
+
             return res.status(404).json({ message: "No attendance records found" });
 
         return res.status(200).json({ report: rows });
@@ -427,14 +459,21 @@ exports.get_student_reports = async (req, res) => {
 exports.update_student_record = async (req, res) => {
     try {
         const { event_id, student_id } = req.body;
-        
+
         const [rows] = await pool.execute(`update attendance_records set status = 'absent', fingerprint = null where event_id = ? and student_id = ?`, [event_id, student_id]);
 
-        if (rows.length <= 0 || !rows)
-            return res.status(404).json({message : "Not found"});
-        return res.status(200).json({message : "Successful"})
-    } catch(err){
-        return res.status(500).json({error : err})
+        if (rows.affectedRows === 0)
+            return res.status(404).json({ message: "Not found" });
+
+        await invalidateCache([
+            `cache:attendance:*`,
+            `cache:admin:attendance:*`,
+            'cache:admin:statistics*'
+        ]);
+
+        return res.status(200).json({ message: "Successful" })
+    } catch (err) {
+        return res.status(500).json({ error: err })
     }
 }
 
