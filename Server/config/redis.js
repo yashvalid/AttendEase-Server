@@ -21,4 +21,8 @@ const connectRedis = async () => {
   await client.connect();
 };
 
-module.exports = { redisClient: client, connectRedis };
+const getRedisClient = async () => {
+  return client;
+};
+
+module.exports = { redisClient: client, connectRedis, getRedisClient };

@@ -11,8 +11,9 @@ const cookieParser = require('cookie-parser');
 const { initSocket } = require("./socket");
 const { connectRedis } = require("./config/redis");
 const { cache } = require("./middleware/cache");
+const { initRateLimiter } = require("./middleware/rateLimiter");
 
-Promise.all([connectDB(), connectRedis()])
+Promise.all([connectDB(), connectRedis(), initRateLimiter()])
     .then(() => {
         app.use(express.json());
         app.use(cors());

@@ -4,8 +4,10 @@ const { body } = require('express-validator')
 const userController = require('../controllers/users.controllers');
 const authenticateToken = require('../middleware/authentication');
 const { cache } = require('../middleware/cache');
+const { authLimiter, writeLimiter } = require('../middleware/rateLimiter');
 
 router.post('/register',
+    authLimiter(),
     body('name').isLength({ min: 1, max: 15 }).notEmpty(),
     body('email').isEmail().notEmpty(),
     body('password').isLength({ min: 7 }).notEmpty(),
@@ -16,6 +18,7 @@ router.post('/register',
 )
 
 router.post('/login',
+    authLimiter(),
     body('email').isEmail().notEmpty(),
     body('password').isLength({ min: 7 }).notEmpty(),
     userController.login
@@ -24,6 +27,7 @@ router.post('/login',
 router.post('/add_class',
     body('class_id').notEmpty(),
     authenticateToken,
+    writeLimiter(),
     userController.add_classes
 )
 
@@ -31,6 +35,7 @@ router.post('/create_class',
     body('class_name').notEmpty(),
     body('year').notEmpty(),
     authenticateToken,
+    writeLimiter(),
     userController.create_class
 )
 

@@ -4,6 +4,12 @@ const attendanceController = require('../controllers/attendance.controllers');
 const { body } = require('express-validator');
 const authenticateToken = require('../middleware/authentication');
 const { cache } = require('../middleware/cache');
+const { 
+    attendanceMarkLimiter, 
+    eventCreationLimiter, 
+    moderateLimiter,
+    strictLimiter 
+} = require('../middleware/rateLimiter');
 
 // Create attendance
 router.post('/attendance',
@@ -12,6 +18,7 @@ router.post('/attendance',
     body('latitude').isFloat(),
     body('longitude').isFloat(),
     authenticateToken,
+    eventCreationLimiter(),
     attendanceController.publish_attendance_event
 );
 
@@ -28,6 +35,7 @@ router.post('/mark_attendance',
     body('latitude').isFloat(),
     body('longitude').isFloat(),
     authenticateToken,
+    attendanceMarkLimiter(),
     attendanceController.mark_attendance
 );
 
@@ -42,12 +50,14 @@ router.get('/get_unmarked_events',
 router.post('/mark_all',
     body('event_id').notEmpty(),
     authenticateToken,
+    moderateLimiter(),
     attendanceController.mark_all
 );
 
 // Teacher all records
 router.get('/get_all_rec',
     authenticateToken,
+    moderateLimiter(),
     cache(300, (req) => `cache:attendance:all:${req.user.user_id}`),
     attendanceController.get_all_attendance
 );
@@ -62,12 +72,14 @@ router.get('/get_recs',
 // Reports
 router.get('/get_teacher_report',
     authenticateToken,
+    //strictLimiter(),
     cache(300, (req) => `cache:attendance:teacher_report:${req.user.user_id}`),
     attendanceController.get_teacher_attendance_report
 );
 
 router.get('/get_student_report',
     authenticateToken,
+    //strictLimiter(),
     cache(300, (req) => `cache:attendance:student_report:${req.user.user_id}`),
     attendanceController.get_student_reports
 );
@@ -77,6 +89,7 @@ router.put('/mark-absent',
     body('event_id').notEmpty(),
     body('student_id').notEmpty(),
     authenticateToken,
+    moderateLimiter(),
     attendanceController.update_student_record
 );
 
