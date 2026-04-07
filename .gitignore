@@ -1,0 +1,4 @@
+*.md
+!api.md 
+verify_api.js
+verify_api.ps1
