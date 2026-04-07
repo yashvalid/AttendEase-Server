@@ -4,13 +4,12 @@ const { redisClient } = require('../config/redis');
 
 let redisConnected = false;
 
-// Initialize rate limiter with Redis
 const initRateLimiter = async () => {
     redisConnected = true;
     return Promise.resolve();
 };
 
-// Generic rate limiter factory - creates limiters on first use (lazy loading)
+
 const createLimiter = (options = {}) => {
     const {
         windowMs = 15 * 60 * 1000,
@@ -24,9 +23,8 @@ const createLimiter = (options = {}) => {
 
     let limiter = null;
 
-    // Return middleware that defers limiter creation
     return (req, res, next) => {
-        // Create limiter on first request (after Redis is connected)
+      
         if (!limiter) {
             limiter = rateLimit({
                 store: new RedisStore({
@@ -51,34 +49,30 @@ const createLimiter = (options = {}) => {
             });
         }
 
-        // Use the created limiter
         return limiter(req, res, next);
     };
 };
 
-// ==================== RATE LIMITERS ====================
 
-// Strict limiter - expensive read operations (reports, statistics)
-// 10 requests per 15 minutes
+// 10 requests per 10 minutes
 const strictLimiter = () =>
     createLimiter({
-        windowMs: 15 * 60 * 1000,
+        windowMs: 10 * 60 * 1000,
         max: 10,
         message: 'Too many expensive requests. Please try again later.',
         keyGenerator: (req) => req.user?.user_id || req.ip,
     });
 
-// Moderate limiter - regular reads (user lists, class lists)
-// 30 requests per 15 minutes
+// 50 requests per 10 minutes
 const moderateLimiter = () =>
     createLimiter({
-        windowMs: 15 * 60 * 1000,
+        windowMs: 10 * 60 * 1000,
         max: 50,
         message: 'Too many requests. Please slow down.',
         keyGenerator: (req) => req.user?.user_id || req.ip,
     });
 
-// Attendance marking limiter - prevents spam marking
+
 // 5 requests per minute per user
 const attendanceMarkLimiter = () =>
     createLimiter({
@@ -88,33 +82,31 @@ const attendanceMarkLimiter = () =>
         keyGenerator: (req) => req.user?.user_id || req.ip,
     });
 
-// Authentication limiter - prevents brute force attacks
-// 5 attempts per 15 minutes
+// 5 attempts per 5 minutes
 const authLimiter = () =>
     createLimiter({
-        windowMs: 15 * 60 * 1000,
+        windowMs: 5 * 60 * 1000,
         max: 5,
         message: 'Too many login/register attempts. Please try again later.',
         keyGenerator: (req) => req.ip,
         skipSuccessfulRequests: true,
     });
 
-// Write operations limiter - prevents spam on updates/deletes
-// 20 requests per 15 minutes
+// 20 requests per 10 minutes
 const writeLimiter = () =>
     createLimiter({
-        windowMs: 15 * 60 * 1000,
+        windowMs: 10 * 60 * 1000,
         max: 20,
         message: 'Too many write operations. Please wait before trying again.',
         keyGenerator: (req) => req.user?.user_id || req.ip,
     });
 
-// Event creation limiter - prevents spam attendance events
-// 10 events per hour
+
+// 5 events per hour
 const eventCreationLimiter = () =>
     createLimiter({
         windowMs: 60 * 60 * 1000,
-        max: 10,
+        max: 5,
         message: 'Too many attendance events created. Please try again later.',
         keyGenerator: (req) => req.user?.user_id || req.ip,
     });
